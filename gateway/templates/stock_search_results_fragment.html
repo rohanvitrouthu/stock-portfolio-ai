@@ -1,0 +1,18 @@
+{% for stock in results %}
+<div hx-get="/stock/{{ stock.symbol }}" 
+     hx-target="#main-content" 
+     hx-push-url="true"
+     class="p-3 bg-slate-900 border border-slate-700 rounded-lg cursor-pointer hover:bg-slate-800 transition flex justify-between items-center group">
+    <div class="flex flex-col">
+        <span class="font-bold text-white group-hover:text-blue-400 transition">{{ stock.name }}</span>
+        <span class="text-xs text-slate-500 font-mono uppercase">{{ stock.symbol }}</span>
+    </div>
+    <div class="text-right">
+        <span class="text-sm font-medium text-slate-300">${{ stock.price }}</span>
+    </div>
+</div>
+{% else %}
+<div class="text-center py-4 text-slate-500 text-sm">
+    No stocks found in this index.
+</div>
+{% endfor %}

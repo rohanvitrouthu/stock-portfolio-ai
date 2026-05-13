@@ -1,0 +1,66 @@
+<div class="space-y-8">
+    <!-- Breadcrumb -->
+    <div class="flex items-center space-x-2 text-slate-500 text-sm">
+        <a href="/" class="hover:text-white transition">Home</a>
+        <span>/</span>
+        <span class="text-blue-400 font-medium">{{ index_name }} ({{ symbol }})</span>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Left Column: Index Constituents -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden">
+                <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+                    <h3 class="text-lg font-bold">Index Constituents</h3>
+                    <span class="text-xs text-slate-500">Live from Wikipedia</span>
+                </div>
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-slate-500 text-xs uppercase tracking-wider border-b border-slate-700">
+                            <th class="p-4 font-medium">Ticker</th>
+                            <th class="p-4 font-medium">Company</th>
+                            <th class="p-4 font-medium text-right">Market Cap</th>
+                            <th class="p-4 font-medium text-right">Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stock-rows"
+                           class="divide-y divide-slate-700"
+                           hx-get="/index/{{ symbol }}/quotes"
+                           hx-trigger="load"
+                           hx-swap="innerHTML">
+                        {% for stock in top_stocks %}
+                            {% include "stock_row.html" %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Right Column: Search within Index -->
+        <div class="space-y-6">
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 space-y-4">
+                <h3 class="text-lg font-bold">Search Index</h3>
+                <p class="text-sm text-slate-400">Find any stock listed in the {{ index_name }}</p>
+                
+                <div class="relative">
+                    <input type="text" 
+                           name="stock_query" 
+                           placeholder="Search ticker or name..." 
+                           class="w-full p-3 pl-10 bg-slate-900 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-blue-500 outline-none transition"
+                           hx-post="/search/stocks/{{ symbol }}" 
+                           hx-trigger="keyup changed delay:300ms" 
+                           hx-target="#stock-search-results">
+                    <div class="absolute left-3 top-3 text-slate-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <div id="stock-search-results" class="space-y-2 mt-4">
+                    <!-- Search results will appear here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
