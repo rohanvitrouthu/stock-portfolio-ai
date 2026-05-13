@@ -4,6 +4,8 @@ use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -12,6 +14,7 @@ use tokio::sync::Mutex;
 pub struct IndexComponent {
     pub symbol: String,
     pub name: String,
+    pub sector: String,
 }
 
 #[derive(Clone, Debug)]
@@ -31,10 +34,16 @@ struct CachedResult {
 pub struct IndexScraper {
     client: Client,
     cache: Arc<Mutex<HashMap<String, CachedResult>>>,
+    sectors: SectorResolver,
 }
 
 impl IndexScraper {
     pub fn new() -> Self {
+        let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")));
+        let sector_path = project_root.join("data").join("sector_overrides.csv");
+
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(15))
@@ -42,6 +51,7 @@ impl IndexScraper {
                 .build()
                 .expect("Failed to create HTTP client"),
             cache: Arc::new(Mutex::new(HashMap::new())),
+            sectors: SectorResolver::from_csv_file(&sector_path),
         }
     }
 
@@ -188,10 +198,12 @@ impl IndexScraper {
                     let symbol = cells.get(symbol_index)?;
                     let name = cells.get(name_index).unwrap_or(symbol);
                     let normalized_symbol = normalize_symbol(symbol, suffix)?;
+                    let sector = self.sectors.resolve(&normalized_symbol);
 
                     Some(IndexComponent {
                         symbol: normalized_symbol,
                         name: clean_company_name(name),
+                        sector,
                     })
                 })
                 .unique_by(|component| component.symbol.clone())
@@ -236,7 +248,11 @@ impl IndexScraper {
                     .map(|link| clean_company_name(&clean_text(*link)))?;
                 let symbol = normalize_symbol(&code, Some(".T"))?;
 
-                Some(IndexComponent { symbol, name })
+                Some(IndexComponent {
+                    symbol: symbol.clone(),
+                    name,
+                    sector: self.sectors.resolve(&symbol),
+                })
             })
             .unique_by(|component| component.symbol.clone())
             .collect::<Vec<_>>();
@@ -247,6 +263,54 @@ impl IndexScraper {
 
         Ok(components)
     }
+}
+
+#[derive(Clone, Debug)]
+struct SectorResolver {
+    sectors_by_symbol: Arc<HashMap<String, String>>,
+}
+
+impl SectorResolver {
+    fn from_csv_file(path: &Path) -> Self {
+        let content = fs::read_to_string(path).unwrap_or_default();
+        Self::from_csv_content(&content)
+    }
+
+    fn from_csv_content(content: &str) -> Self {
+        let sectors_by_symbol = content
+            .lines()
+            .skip(1)
+            .filter_map(parse_sector_row)
+            .collect::<HashMap<_, _>>();
+
+        Self {
+            sectors_by_symbol: Arc::new(sectors_by_symbol),
+        }
+    }
+
+    fn resolve(&self, symbol: &str) -> String {
+        self.sectors_by_symbol
+            .get(&symbol.to_uppercase())
+            .cloned()
+            .unwrap_or_else(|| "Unknown".to_string())
+    }
+}
+
+fn parse_sector_row(row: &str) -> Option<(String, String)> {
+    let trimmed = row.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+
+    let mut columns = trimmed.splitn(2, ',');
+    let symbol = columns.next()?.trim().to_uppercase();
+    let sector = columns.next()?.trim().to_string();
+
+    if symbol.is_empty() || sector.is_empty() {
+        return None;
+    }
+
+    Some((symbol, sector))
 }
 
 impl Default for IndexScraper {
@@ -359,5 +423,21 @@ impl From<YahooQuote> for QuoteResult {
             price: value.regular_market_price,
             currency: value.currency,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SectorResolver;
+
+    #[test]
+    fn sector_resolver_uses_csv_override_and_unknown_fallback() {
+        let resolver = SectorResolver::from_csv_content(
+            "symbol,sector\nRELIANCE.NS,Energy\nTCS.NS,Information Technology\n",
+        );
+
+        assert_eq!(resolver.resolve("reliance.ns"), "Energy");
+        assert_eq!(resolver.resolve("TCS.NS"), "Information Technology");
+        assert_eq!(resolver.resolve("MISSING.NS"), "Unknown");
     }
 }

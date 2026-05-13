@@ -1,6 +1,7 @@
 <tr class="hover:bg-slate-700/50 transition cursor-pointer" hx-get="/stock/{{ stock.symbol }}" hx-target="#main-content" hx-push-url="true">
     <td class="p-4 font-mono text-blue-400">{{ stock.symbol }}</td>
     <td class="p-4 text-slate-300">{{ stock.name }}</td>
+    <td class="p-4 text-slate-400">{{ stock.sector }}</td>
     <td class="p-4 text-right text-slate-400">{{ stock.market_cap }}</td>
     <td class="p-4 text-right font-medium">{{ stock.price }}</td>
 </tr>

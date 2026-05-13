@@ -84,6 +84,7 @@ struct IndexResult {
 struct StockResult {
     symbol: String,
     name: String,
+    sector: String,
     market_cap: String,
     price: String,
 }
@@ -355,6 +356,10 @@ async fn get_enriched_stocks(
         .iter()
         .map(|component| (component.symbol.clone(), component.name.clone()))
         .collect::<HashMap<_, _>>();
+    let fallback_sectors = components
+        .iter()
+        .map(|component| (component.symbol.clone(), component.sector.clone()))
+        .collect::<HashMap<_, _>>();
 
     let quotes_result = match state.scraper.get_quotes(&symbols).await {
         Ok(quotes) if !quotes.is_empty() => Ok(quotes),
@@ -396,7 +401,7 @@ async fn get_enriched_stocks(
     let stocks = ranked_quotes
         .iter()
         .take(10)
-        .map(|quote| stock_from_quote(quote, &fallback_names))
+        .map(|quote| stock_from_quote(quote, &fallback_names, &fallback_sectors))
         .collect::<Vec<_>>();
 
     if stocks.is_empty() {
@@ -517,7 +522,11 @@ fn path_to_string(path: &PathBuf) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Path is not valid UTF-8: {}", path.display()))
 }
 
-fn stock_from_quote(quote: &QuoteResult, fallback_names: &HashMap<String, String>) -> StockResult {
+fn stock_from_quote(
+    quote: &QuoteResult,
+    fallback_names: &HashMap<String, String>,
+    fallback_sectors: &HashMap<String, String>,
+) -> StockResult {
     let name = if quote.name.trim().is_empty() || quote.name == quote.symbol {
         fallback_names
             .get(&quote.symbol)
@@ -530,6 +539,10 @@ fn stock_from_quote(quote: &QuoteResult, fallback_names: &HashMap<String, String
     StockResult {
         symbol: quote.symbol.clone(),
         name,
+        sector: fallback_sectors
+            .get(&quote.symbol)
+            .cloned()
+            .unwrap_or_else(|| "Unknown".to_string()),
         market_cap: quote
             .market_cap
             .map(format_market_cap)
@@ -548,6 +561,7 @@ fn stock_from_component(component: IndexComponent) -> StockResult {
     StockResult {
         symbol: component.symbol,
         name: component.name,
+        sector: component.sector,
         market_cap: "N/A".to_string(),
         price: "N/A".to_string(),
     }
@@ -570,60 +584,70 @@ fn mock_top_stocks() -> Vec<StockResult> {
         StockResult {
             symbol: "AAPL".to_string(),
             name: "Apple Inc.".to_string(),
+            sector: "Information Technology".to_string(),
             market_cap: "3.40T".to_string(),
             price: "225.10 USD".to_string(),
         },
         StockResult {
             symbol: "MSFT".to_string(),
             name: "Microsoft Corp.".to_string(),
+            sector: "Information Technology".to_string(),
             market_cap: "3.10T".to_string(),
             price: "415.50 USD".to_string(),
         },
         StockResult {
             symbol: "NVDA".to_string(),
             name: "Nvidia Corp.".to_string(),
+            sector: "Information Technology".to_string(),
             market_cap: "2.80T".to_string(),
             price: "120.30 USD".to_string(),
         },
         StockResult {
             symbol: "GOOGL".to_string(),
             name: "Alphabet Inc.".to_string(),
+            sector: "Communication Services".to_string(),
             market_cap: "2.10T".to_string(),
             price: "175.20 USD".to_string(),
         },
         StockResult {
             symbol: "AMZN".to_string(),
             name: "Amazon.com Inc.".to_string(),
+            sector: "Consumer Discretionary".to_string(),
             market_cap: "1.90T".to_string(),
             price: "180.10 USD".to_string(),
         },
         StockResult {
             symbol: "META".to_string(),
             name: "Meta Platforms".to_string(),
+            sector: "Communication Services".to_string(),
             market_cap: "1.30T".to_string(),
             price: "490.20 USD".to_string(),
         },
         StockResult {
             symbol: "TSLA".to_string(),
             name: "Tesla Inc.".to_string(),
+            sector: "Automobile".to_string(),
             market_cap: "700.00B".to_string(),
             price: "170.40 USD".to_string(),
         },
         StockResult {
             symbol: "BRK-B".to_string(),
             name: "Berkshire Hathaway".to_string(),
+            sector: "Financial Services".to_string(),
             market_cap: "800.00B".to_string(),
             price: "410.10 USD".to_string(),
         },
         StockResult {
             symbol: "AVGO".to_string(),
             name: "Broadcom Inc.".to_string(),
+            sector: "Information Technology".to_string(),
             market_cap: "600.00B".to_string(),
             price: "160.50 USD".to_string(),
         },
         StockResult {
             symbol: "LLY".to_string(),
             name: "Eli Lilly".to_string(),
+            sector: "Healthcare".to_string(),
             market_cap: "550.00B".to_string(),
             price: "780.20 USD".to_string(),
         },

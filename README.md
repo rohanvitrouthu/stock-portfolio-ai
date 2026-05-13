@@ -38,13 +38,19 @@ The Fundamental Analyst Agent is implemented in [`src/stock_portfolio_ai/agents/
 
 `FundamentalAnalystAgent` uses the same configuration layer and adds built-in interpretation logic for valuation, balance-sheet context, dividend profile, and simple year-over-year fundamental trends.
 
+The Technical Analyst Agent is implemented in [`src/stock_portfolio_ai/agents/technical_analyst_agent.py`](src/stock_portfolio_ai/agents/technical_analyst_agent.py). It exposes one LangChain tool backed by `yfinance` price history:
+
+- `get_technical_indicators(symbol, period="6mo")`
+
+`TechnicalAnalystAgent` computes moving averages, RSI, recent returns, volume context, and annualized volatility. It can also emit a validated technical `AnalystReport` through `analyze_symbol_report(symbol)`.
+
 Shared analyst report models live in [`src/stock_portfolio_ai/reports.py`](src/stock_portfolio_ai/reports.py):
 
 - `AnalystReport`
 - `EvidenceItem`
 - common rating and agent type literals
 
-The fundamental analyst can emit a validated `AnalystReport` through `analyze_symbol_report(symbol)`. This gives future technical, macro, news, portfolio, and supervisor components a consistent machine-readable contract instead of relying on free-form text.
+Both analyst agents can emit validated `AnalystReport` objects through `analyze_symbol_report(symbol)`. This gives future macro, news, portfolio, and supervisor components a consistent machine-readable contract instead of relying on free-form text.
 
 ## Configuration
 
@@ -66,7 +72,7 @@ uv run stock-portfolio-ai
 To run the agent demo tests:
 
 ```bash
-UV_CACHE_DIR=.uv-cache uv run --with pytest pytest tests/test_reports.py tests/test_market_data_agent.py tests/test_fundamental_analyst_agent.py
+UV_CACHE_DIR=.uv-cache uv run --with pytest pytest tests/test_reports.py tests/test_market_data_agent.py tests/test_fundamental_analyst_agent.py tests/test_technical_analyst_agent.py
 ```
 
 ## Gateway Service
@@ -100,7 +106,7 @@ Useful routes:
 - `GET /index/%5ENSEI` opens the Nifty 50 detail page.
 - `POST /search/stocks/:symbol` searches scraped constituents for an index.
 
-The gateway currently scrapes Wikipedia for index constituents and renders rows immediately. The table body then makes a second HTMX request to enrich the full index with market cap and price data, sort by market cap descending, and replace the table with the top 10 stocks. This keeps index navigation responsive even when Yahoo Finance or `yfinance` is slow. If quote enrichment fails, the constituent rows remain visible with `N/A` quote fields; if constituent scraping fails, the UI falls back to mock rows instead of crashing.
+The gateway currently scrapes Wikipedia for index constituents and renders rows immediately. Sector classification is resolved from local reference data in [`data/sector_overrides.csv`](data/sector_overrides.csv), avoiding external sector lookups during page render. The table body then makes a second HTMX request to enrich the full index with market cap and price data, sort by market cap descending, and replace the table with the top 10 stocks. This keeps index navigation responsive even when Yahoo Finance or `yfinance` is slow. If quote enrichment fails, the constituent rows remain visible with `N/A` quote fields; if constituent scraping fails, the UI falls back to mock rows instead of crashing.
 
 When index search results are returned, the gateway also starts a background prefetch for matching indices. This warms the constituent and quote caches before the user clicks, reducing the visible wait on common flows. Remaining lag is usually from external data sources, not from Axum itself.
 
@@ -120,3 +126,5 @@ curl http://127.0.0.1:3000/index/%5EGSPC
 ```
 
 See [`ROADMAP.md`](ROADMAP.md) for the phased build plan.
+See [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) for the common stock, index, sector, and quote data model.
+See [`build_logs/`](build_logs) for decision-oriented build logs and session progress notes.

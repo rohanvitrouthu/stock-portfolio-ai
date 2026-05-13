@@ -11,15 +11,22 @@
 
 - ✅ build a market data ingestion layer around `yfinance`
 - normalize price history, company metadata, and key financial fields
+- ✅ define the common stock, index, sector, and quote data model
 - add retry, caching, and data validation paths
 - ✅ expose data retrieval through a dedicated agent or graph node
 
 ## Phase 3: Analyst Agents
 
 - create specialized agents for fundamentals, technicals, macro context, and news synthesis
+  - ✅ fundamentals
+  - ✅ technicals
+  - macro context
+  - news synthesis
 - ✅ define shared report schema and initial evidence collection rules
 - define shared prompts and richer evidence collection rules
 - standardize outputs into machine-readable analyst reports
+  - ✅ fundamentals
+  - ✅ technicals
 - add tracing and evaluation hooks for agent quality
 
 ## Phase 4: Portfolio Manager
