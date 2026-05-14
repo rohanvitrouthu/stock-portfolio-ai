@@ -8,6 +8,7 @@ use axum::{
 };
 use gateway::{IndexComponent, IndexScraper, QuoteResult};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path as StdPath, PathBuf};
@@ -73,6 +74,70 @@ struct StockRowsFragment {
     stocks: Vec<StockResult>,
 }
 
+#[derive(Template)]
+#[template(path = "stock_detail.html")]
+struct StockDetailTemplate<'a> {
+    symbol: &'a str,
+    model_id: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "stock_detail_fragment.html")]
+struct StockDetailFragment<'a> {
+    symbol: &'a str,
+    model_id: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "settings.html")]
+struct SettingsTemplate {
+    models: Vec<ModelOptionView>,
+}
+
+#[derive(Template)]
+#[template(path = "settings_fragment.html")]
+struct SettingsFragment {
+    models: Vec<ModelOptionView>,
+}
+
+#[derive(Template)]
+#[template(path = "research_report_fragment.html")]
+struct ResearchReportFragment {
+    title: String,
+    rating: String,
+    confidence: String,
+    summary: String,
+    key_points: Vec<String>,
+    risks: Vec<String>,
+    evidence: Vec<EvidenceView>,
+}
+
+#[derive(Template)]
+#[template(path = "research_market_fragment.html")]
+struct ResearchMarketFragment {
+    symbol: String,
+    metrics: Vec<MetricView>,
+    headlines: Vec<HeadlineView>,
+}
+
+#[derive(Template)]
+#[template(path = "research_conclusion_fragment.html")]
+struct ResearchConclusionFragment {
+    conclusion: String,
+    confidence: String,
+    summary: String,
+    key_findings: Vec<String>,
+    risks: Vec<String>,
+    conflicts: Vec<String>,
+    next_steps: Vec<String>,
+}
+
+#[derive(Template)]
+#[template(path = "research_error_fragment.html")]
+struct ResearchErrorFragment {
+    message: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct IndexResult {
     name: String,
@@ -89,11 +154,61 @@ struct StockResult {
     price: String,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct ModelConfig {
+    default_model: String,
+    models: Vec<ModelOption>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ModelOption {
+    id: String,
+    label: String,
+}
+
+struct ModelOptionView {
+    id: String,
+    label: String,
+    selected: bool,
+}
+
+struct EvidenceView {
+    label: String,
+    value: String,
+    source: String,
+    explanation: String,
+}
+
+struct MetricView {
+    label: String,
+    value: String,
+}
+
+struct HeadlineView {
+    title: String,
+    publisher: String,
+    published_at: String,
+}
+
 // --- Handlers ---
 
 async fn home_handler() -> impl IntoResponse {
     let template = IndexTemplate {};
     Html(template.render().unwrap())
+}
+
+async fn settings_handler(req: Request<axum::body::Body>) -> impl IntoResponse {
+    let headers = req.headers();
+    let is_htmx = headers.get("hx-request").is_some();
+    let config = load_model_config();
+    let models = model_option_views(&config);
+
+    if is_htmx {
+        Html(SettingsFragment { models }.render().unwrap())
+    } else {
+        Html(SettingsTemplate { models }.render().unwrap())
+    }
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -252,6 +367,56 @@ async fn search_stocks_handler(
     Html(template.render().unwrap())
 }
 
+async fn stock_detail_handler(
+    Path(symbol): Path<String>,
+    req: Request<axum::body::Body>,
+) -> impl IntoResponse {
+    let headers = req.headers();
+    let is_htmx = headers.get("hx-request").is_some();
+    let normalized_symbol = normalize_stock_symbol(&symbol);
+    let config = load_model_config();
+
+    if is_htmx {
+        Html(
+            StockDetailFragment {
+                symbol: &normalized_symbol,
+                model_id: &config.default_model,
+            }
+            .render()
+            .unwrap(),
+        )
+    } else {
+        Html(
+            StockDetailTemplate {
+                symbol: &normalized_symbol,
+                model_id: &config.default_model,
+            }
+            .render()
+            .unwrap(),
+        )
+    }
+    .into_response()
+}
+
+async fn stock_research_handler(
+    Path((symbol, section)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let normalized_symbol = normalize_stock_symbol(&symbol);
+    let config = load_model_config();
+
+    match run_stock_research_bridge(&normalized_symbol, &section, &config.default_model).await {
+        Ok(payload) => render_research_payload(&section, payload).into_response(),
+        Err(error) => Html(
+            ResearchErrorFragment {
+                message: format!("Research generation failed for {normalized_symbol}: {error}"),
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response(),
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -265,10 +430,16 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(home_handler))
+        .route("/settings", get(settings_handler))
         .route("/search/indices", post(search_indices_handler))
         .route("/index/:symbol/quotes", get(index_quotes_handler))
         .route("/index/:symbol", get(index_detail_handler))
         .route("/search/stocks/:symbol", post(search_stocks_handler))
+        .route(
+            "/stock/:symbol/research/:section",
+            get(stock_research_handler),
+        )
+        .route("/stock/:symbol", get(stock_detail_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -431,6 +602,288 @@ async fn get_quotes_from_python(symbols: Vec<String>) -> anyhow::Result<Vec<Quot
         Ok(Ok(result)) => result,
         Ok(Err(error)) => Err(anyhow::anyhow!("Python quote task failed: {}", error)),
         Err(_) => Err(anyhow::anyhow!("Python quote bridge timed out")),
+    }
+}
+
+async fn run_stock_research_bridge(
+    symbol: &str,
+    section: &str,
+    model: &str,
+) -> anyhow::Result<Value> {
+    let symbol = symbol.to_string();
+    let section = section.to_string();
+    let model = model.to_string();
+    let task = tokio::task::spawn_blocking(move || {
+        run_stock_research_bridge_blocking(&symbol, &section, &model)
+    });
+
+    match tokio::time::timeout(Duration::from_secs(120), task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(anyhow::anyhow!("Python research task failed: {}", error)),
+        Err(_) => Err(anyhow::anyhow!("Python research bridge timed out")),
+    }
+}
+
+fn run_stock_research_bridge_blocking(
+    symbol: &str,
+    section: &str,
+    model: &str,
+) -> anyhow::Result<Value> {
+    let script = r#"
+import json
+import sys
+
+symbol = sys.argv[1]
+section = sys.argv[2]
+model = sys.argv[3]
+
+if section == "fundamentals":
+    from stock_portfolio_ai.agents.fundamental_analyst_agent import FundamentalAnalystAgent
+    report = FundamentalAnalystAgent(model=model).analyze_symbol_report(symbol).model_dump()
+    print(json.dumps({"kind": "report", "title": "Fundamentals", "report": report}))
+elif section == "technical":
+    from stock_portfolio_ai.agents.technical_analyst_agent import TechnicalAnalystAgent
+    report = TechnicalAnalystAgent(model=model).analyze_symbol_report(symbol).model_dump()
+    print(json.dumps({"kind": "report", "title": "Technical Indicators", "report": report}))
+elif section == "sentiment":
+    from stock_portfolio_ai.agents.sentiment_analyst_agent import SentimentAnalystAgent
+    report = SentimentAnalystAgent(model=model).analyze_symbol_report(symbol).model_dump()
+    print(json.dumps({"kind": "report", "title": "Sentiment Analysis", "report": report}))
+elif section == "market":
+    from stock_portfolio_ai.agents.market_data_agent import MarketDataAgent
+    agent = MarketDataAgent(model=model)
+    price = agent.invoke_tool("get_stock_price", symbol=symbol)
+    news = agent.invoke_tool("get_company_news", symbol=symbol)
+    print(json.dumps({"kind": "market", "symbol": symbol, "price": price, "news": news}))
+elif section == "conclusion":
+    from stock_portfolio_ai.agents.supervisor_agent import SupervisorAgent
+    summary = SupervisorAgent(model=model).analyze_symbol(symbol).model_dump()
+    print(json.dumps({"kind": "conclusion", "summary": summary}))
+else:
+    raise ValueError(f"Unknown research section: {section}")
+"#;
+
+    let project_root = StdPath::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve project root"))?;
+    let uv_cache_dir = project_root.join(".uv-cache");
+
+    let output = Command::new("uv")
+        .current_dir(project_root)
+        .env("UV_CACHE_DIR", path_to_string(&uv_cache_dir)?)
+        .env("OPENROUTER_MODEL", model)
+        .args(["run", "python", "-c", script, symbol, section, model])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Python research bridge failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn render_research_payload(section: &str, payload: Value) -> Html<String> {
+    match payload.get("kind").and_then(Value::as_str) {
+        Some("report") => render_report_payload(payload),
+        Some("market") => render_market_payload(payload),
+        Some("conclusion") => render_conclusion_payload(payload),
+        _ => Html(
+            ResearchErrorFragment {
+                message: format!("Unexpected research response for section '{section}'."),
+            }
+            .render()
+            .unwrap(),
+        ),
+    }
+}
+
+fn render_report_payload(payload: Value) -> Html<String> {
+    let report = payload.get("report").unwrap_or(&Value::Null);
+    let title = payload
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Research Report")
+        .to_string();
+
+    let evidence = report
+        .get("evidence")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| EvidenceView {
+                    label: string_value(item, "label"),
+                    value: value_to_display(item.get("value")),
+                    source: string_value(item, "source"),
+                    explanation: string_value(item, "explanation"),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let template = ResearchReportFragment {
+        title,
+        rating: string_value(report, "rating").replace('_', " "),
+        confidence: percent_value(report.get("confidence")),
+        summary: string_value(report, "summary"),
+        key_points: string_list(report.get("key_points")),
+        risks: string_list(report.get("risks")),
+        evidence,
+    };
+
+    Html(template.render().unwrap())
+}
+
+fn render_market_payload(payload: Value) -> Html<String> {
+    let price = payload.get("price").unwrap_or(&Value::Null);
+    let news = payload.get("news").unwrap_or(&Value::Null);
+
+    let mut metrics = Vec::new();
+    if price.get("error").is_some() {
+        metrics.push(MetricView {
+            label: "Price status".to_string(),
+            value: string_value(price, "error"),
+        });
+    } else {
+        metrics.push(MetricView {
+            label: "Latest price".to_string(),
+            value: value_to_display(price.get("price")),
+        });
+        metrics.push(MetricView {
+            label: "Currency".to_string(),
+            value: string_value(price, "currency"),
+        });
+        metrics.push(MetricView {
+            label: "Exchange".to_string(),
+            value: string_value(price, "exchange"),
+        });
+        metrics.push(MetricView {
+            label: "Volume".to_string(),
+            value: value_to_display(price.get("volume")),
+        });
+        metrics.push(MetricView {
+            label: "As of".to_string(),
+            value: string_value(price, "as_of"),
+        });
+    }
+
+    let headlines = news
+        .get("headlines")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| HeadlineView {
+                    title: string_value(item, "title"),
+                    publisher: string_value(item, "publisher"),
+                    published_at: string_value(item, "published_at"),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Html(
+        ResearchMarketFragment {
+            symbol: string_value(&payload, "symbol"),
+            metrics,
+            headlines,
+        }
+        .render()
+        .unwrap(),
+    )
+}
+
+fn render_conclusion_payload(payload: Value) -> Html<String> {
+    let summary = payload.get("summary").unwrap_or(&Value::Null);
+    Html(
+        ResearchConclusionFragment {
+            conclusion: string_value(summary, "conclusion").replace('_', " "),
+            confidence: percent_value(summary.get("confidence")),
+            summary: string_value(summary, "summary"),
+            key_findings: string_list(summary.get("key_findings")),
+            risks: string_list(summary.get("risks")),
+            conflicts: string_list(summary.get("conflicts")),
+            next_steps: string_list(summary.get("next_steps")),
+        }
+        .render()
+        .unwrap(),
+    )
+}
+
+fn load_model_config() -> ModelConfig {
+    let project_root = StdPath::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| StdPath::new(env!("CARGO_MANIFEST_DIR")));
+    let config_path = project_root.join("config").join("openrouter_models.json");
+    let fallback = ModelConfig {
+        default_model: "openrouter/auto".to_string(),
+        models: vec![ModelOption {
+            id: "openrouter/auto".to_string(),
+            label: "OpenRouter Auto".to_string(),
+        }],
+    };
+
+    let Ok(content) = std::fs::read_to_string(config_path) else {
+        return fallback;
+    };
+
+    serde_json::from_str(&content).unwrap_or(fallback)
+}
+
+fn model_option_views(config: &ModelConfig) -> Vec<ModelOptionView> {
+    config
+        .models
+        .iter()
+        .map(|model| ModelOptionView {
+            id: model.id.clone(),
+            label: model.label.clone(),
+            selected: model.id == config.default_model,
+        })
+        .collect()
+}
+
+fn normalize_stock_symbol(symbol: &str) -> String {
+    symbol.trim().to_uppercase()
+}
+
+fn string_list(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn string_value(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .map(Some)
+        .map(value_to_display)
+        .unwrap_or_else(|| "N/A".to_string())
+}
+
+fn value_to_display(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(value)) if !value.is_empty() => value.clone(),
+        Some(Value::Number(value)) => value.to_string(),
+        Some(Value::Bool(value)) => value.to_string(),
+        Some(Value::Null) | None => "N/A".to_string(),
+        Some(other) => other.to_string(),
+    }
+}
+
+fn percent_value(value: Option<&Value>) -> String {
+    match value.and_then(Value::as_f64) {
+        Some(value) => format!("{:.0}%", value * 100.0),
+        None => "0%".to_string(),
     }
 }
 

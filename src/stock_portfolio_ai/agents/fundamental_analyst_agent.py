@@ -575,7 +575,11 @@ class FundamentalAnalystAgent:
                 "query": query,
             }
 
-        result = self.agent.invoke({"messages": [("user", query)]})
+        try:
+            result = self.agent.invoke({"messages": [("user", query)]})
+        except Exception as error:
+            return {"error": str(error), "query": query}
+
         messages = result.get("messages", [])
         serialized_messages = [
             {

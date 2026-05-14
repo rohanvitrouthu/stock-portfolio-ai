@@ -1,0 +1,50 @@
+<article class="space-y-5">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+            <h3 class="text-xl font-bold text-white">{{ title }}</h3>
+            <p class="text-sm text-slate-400 mt-1">{{ summary }}</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-300 border border-blue-500/30">{{ rating }}</span>
+            <span class="text-sm text-slate-400">{{ confidence }} confidence</span>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <section class="space-y-3">
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Key Points</h4>
+            <ul class="space-y-2">
+                {% for point in key_points %}
+                    <li class="text-sm text-slate-300 border border-slate-700 rounded-lg p-3 bg-slate-900/60">{{ point }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        <section class="space-y-3">
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Risks</h4>
+            <ul class="space-y-2">
+                {% for risk in risks %}
+                    <li class="text-sm text-slate-300 border border-slate-700 rounded-lg p-3 bg-slate-900/60">{{ risk }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+    </div>
+
+    <section class="space-y-3">
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Evidence</h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {% for item in evidence %}
+                <div class="border border-slate-700 rounded-lg p-3 bg-slate-900/60">
+                    <div class="flex justify-between gap-3 text-sm">
+                        <span class="text-slate-300">{{ item.label }}</span>
+                        <span class="font-mono text-slate-400">{{ item.value }}</span>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-1">{{ item.source }}</p>
+                    {% if item.explanation.len() > 0 %}
+                        <p class="text-xs text-slate-400 mt-2">{{ item.explanation }}</p>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+</article>

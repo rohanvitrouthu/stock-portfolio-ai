@@ -1,0 +1,25 @@
+{
+  "default_model": "deepseek/deepseek-v4-pro",
+  "models": [
+    {
+      "id": "openrouter/auto",
+      "label": "OpenRouter Auto"
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro"
+    },
+    {
+      "id": "nvidia/nemotron-3-super-120b-a12b",
+      "label": "NVIDIA Nemotron 3 Super"
+    },
+    {
+      "id": "google/gemini-3-flash-preview",
+      "label": "Gemini 3 Flash"
+    },
+    {
+      "id": "qwen/qwen3.6-flash",
+      "label": "Qwen 3.6 Flash"
+    }
+  ]
+}

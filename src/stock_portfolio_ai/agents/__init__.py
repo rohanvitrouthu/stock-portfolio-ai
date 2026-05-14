@@ -10,6 +10,8 @@ from .market_data_agent import (
     get_historical_data,
     get_stock_price,
 )
+from .sentiment_analyst_agent import SentimentAnalystAgent, get_news_sentiment
+from .supervisor_agent import SupervisorAgent
 from .technical_analyst_agent import TechnicalAnalystAgent, get_technical_indicators
 
 __all__ = [
@@ -19,6 +21,9 @@ __all__ = [
     "get_cash_flow",
     "TechnicalAnalystAgent",
     "get_technical_indicators",
+    "SentimentAnalystAgent",
+    "get_news_sentiment",
+    "SupervisorAgent",
     "MarketDataAgent",
     "get_stock_price",
     "get_historical_data",

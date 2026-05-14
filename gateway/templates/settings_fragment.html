@@ -1,0 +1,25 @@
+<div class="space-y-6">
+    <div class="flex items-center space-x-2 text-slate-500 text-sm">
+        <a href="/" class="hover:text-white transition">Home</a>
+        <span>/</span>
+        <span class="text-blue-400 font-medium">Settings</span>
+    </div>
+
+    <section class="bg-slate-800 border border-slate-700 rounded-lg p-6 space-y-5">
+        <div>
+            <h2 class="text-2xl font-bold text-white">Settings</h2>
+            <p class="text-sm text-slate-400 mt-1">OpenRouter model configuration</p>
+        </div>
+
+        <div class="space-y-2 max-w-xl">
+            <label for="model-picker" class="block text-sm font-medium text-slate-300">Selected model</label>
+            <select id="model-picker"
+                    class="w-full p-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                {% for model in models %}
+                    <option value="{{ model.id }}" {% if model.selected %}selected{% endif %}>{{ model.label }} ({{ model.id }})</option>
+                {% endfor %}
+            </select>
+            <p class="text-xs text-slate-500">Loaded from config/openrouter_models.json</p>
+        </div>
+    </section>
+</div>

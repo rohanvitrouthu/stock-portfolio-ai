@@ -114,6 +114,47 @@ StockResult
 - price
 ```
 
+Agent research outputs use `AnalystReport` from `src/stock_portfolio_ai/reports.py`.
+Current `agent_type` values include:
+
+- `fundamental`
+- `technical`
+- `sentiment`
+- `macro`
+- `news`
+
+The supervisor output uses `InvestmentSummary` from the same module. It wraps:
+
+- market data snapshot
+- analyst reports
+- final conclusion
+- confidence
+- key findings
+- risks
+- conflicts
+- next steps
+
+## Runtime Research View
+
+The gateway Single Stock Research page loads research only after a user clicks a specific stock symbol.
+The page does not prefetch agent research for every index constituent.
+
+Current lazy-load order:
+
+1. fundamentals
+2. technical indicators
+3. sentiment
+4. market data
+5. supervisor conclusion
+
+OpenRouter model choices are configured in:
+
+```text
+config/openrouter_models.json
+```
+
+The gateway Settings page reads this file and shows the configured `default_model`.
+
 ## Read Path
 
 1. Scrape or load index constituents.

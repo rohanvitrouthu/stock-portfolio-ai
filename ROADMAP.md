@@ -20,13 +20,14 @@
 - create specialized agents for fundamentals, technicals, macro context, and news synthesis
   - ✅ fundamentals
   - ✅ technicals
+  - ✅ sentiment analysis
   - macro context
-  - news synthesis
 - ✅ define shared report schema and initial evidence collection rules
 - define shared prompts and richer evidence collection rules
 - standardize outputs into machine-readable analyst reports
   - ✅ fundamentals
   - ✅ technicals
+  - ✅ sentiment analysis
 - add tracing and evaluation hooks for agent quality
 
 ## Phase 4: Portfolio Manager
@@ -38,14 +39,15 @@
 
 ## Phase 5: Supervisor
 
-- orchestrate the full workflow across data, analyst, and portfolio nodes
+- ✅ orchestrate the initial stock research workflow across market data and analyst nodes
 - manage task routing, failure handling, and execution policies
 - add persistent state for multi-step portfolio reviews
-- define guardrails for incomplete or conflicting evidence
+- ✅ define initial guardrails for incomplete or conflicting evidence
 
 ## Phase 6: UI/CLI
 
 - provide a CLI entrypoint for research and portfolio review flows
-- add a lightweight UI for dashboards, reports, and agent interaction
+- ✅ add initial Single Stock Research UI for market data, sub-agent reports, and supervisor conclusion
 - surface configuration, run history, and audit trails
+- ✅ surface OpenRouter model configuration in Settings
 - prepare the system for deployment and operator workflows

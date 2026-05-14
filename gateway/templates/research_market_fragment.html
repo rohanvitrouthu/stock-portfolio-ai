@@ -1,0 +1,27 @@
+<article class="space-y-5">
+    <div>
+        <h3 class="text-xl font-bold text-white">Market Data</h3>
+        <p class="text-sm text-slate-400 mt-1">{{ symbol }} quote and recent headlines</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {% for metric in metrics %}
+            <div class="border border-slate-700 rounded-lg p-4 bg-slate-900/60">
+                <p class="text-xs uppercase tracking-wide text-slate-500">{{ metric.label }}</p>
+                <p class="text-lg font-semibold text-white mt-1">{{ metric.value }}</p>
+            </div>
+        {% endfor %}
+    </div>
+
+    <section class="space-y-3">
+        <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Recent Headlines</h4>
+        <ul class="space-y-2">
+            {% for headline in headlines %}
+                <li class="border border-slate-700 rounded-lg p-3 bg-slate-900/60">
+                    <p class="text-sm text-slate-300">{{ headline.title }}</p>
+                    <p class="text-xs text-slate-500 mt-1">{{ headline.publisher }} {{ headline.published_at }}</p>
+                </li>
+            {% endfor %}
+        </ul>
+    </section>
+</article>

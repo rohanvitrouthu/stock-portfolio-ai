@@ -1,0 +1,88 @@
+<div class="space-y-6">
+    <div class="flex items-center space-x-2 text-slate-500 text-sm">
+        <a href="/" class="hover:text-white transition">Home</a>
+        <span>/</span>
+        <span class="text-blue-400 font-medium">{{ symbol }}</span>
+    </div>
+
+    <section class="space-y-2">
+        <p class="text-sm uppercase tracking-wider text-slate-500">Single Stock Research</p>
+        <h2 class="text-3xl font-bold text-white">{{ symbol }}</h2>
+        <p class="text-sm text-slate-400">Model: {{ model_id }}</p>
+    </section>
+
+    <div class="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+        <div class="border-b border-slate-700 overflow-x-auto">
+            <nav class="flex min-w-max" aria-label="Research tabs">
+                <button class="research-tab px-4 py-3 text-sm font-medium text-blue-300 border-b-2 border-blue-400"
+                        data-tab="fundamentals">Fundamentals</button>
+                <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
+                        data-tab="technical">Technical</button>
+                <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
+                        data-tab="sentiment">Sentiment</button>
+                <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
+                        data-tab="market">Market Data</button>
+                <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
+                        data-tab="conclusion">Conclusion</button>
+            </nav>
+        </div>
+
+        <div class="p-6">
+            <section id="tab-fundamentals"
+                     class="research-panel"
+                     hx-get="/stock/{{ symbol }}/research/fundamentals"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                {% include "research_loading_fragment.html" %}
+            </section>
+
+            <section id="tab-technical"
+                     class="research-panel hidden"
+                     hx-get="/stock/{{ symbol }}/research/technical"
+                     hx-trigger="load delay:250ms"
+                     hx-swap="innerHTML">
+                {% include "research_loading_fragment.html" %}
+            </section>
+
+            <section id="tab-sentiment"
+                     class="research-panel hidden"
+                     hx-get="/stock/{{ symbol }}/research/sentiment"
+                     hx-trigger="load delay:800ms"
+                     hx-swap="innerHTML">
+                {% include "research_loading_fragment.html" %}
+            </section>
+
+            <section id="tab-market"
+                     class="research-panel hidden"
+                     hx-get="/stock/{{ symbol }}/research/market"
+                     hx-trigger="load delay:900ms"
+                     hx-swap="innerHTML">
+                {% include "research_loading_fragment.html" %}
+            </section>
+
+            <section id="tab-conclusion"
+                     class="research-panel hidden"
+                     hx-get="/stock/{{ symbol }}/research/conclusion"
+                     hx-trigger="load delay:1600ms"
+                     hx-swap="innerHTML">
+                {% include "research_loading_fragment.html" %}
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.querySelectorAll('.research-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.research-tab').forEach((item) => {
+                item.classList.remove('text-blue-300', 'border-blue-400');
+                item.classList.add('text-slate-400', 'border-transparent');
+            });
+            tab.classList.add('text-blue-300', 'border-blue-400');
+            tab.classList.remove('text-slate-400', 'border-transparent');
+
+            document.querySelectorAll('.research-panel').forEach((panel) => panel.classList.add('hidden'));
+            document.getElementById(`tab-${tab.dataset.tab}`).classList.remove('hidden');
+        });
+    });
+</script>
