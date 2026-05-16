@@ -60,7 +60,7 @@ The analyst agents can emit validated `AnalystReport` objects through `analyze_s
 
 The Supervisor Agent is implemented in [`src/stock_portfolio_ai/agents/supervisor_agent.py`](src/stock_portfolio_ai/agents/supervisor_agent.py). It calls the Market Data, Fundamental, Technical, and Sentiment agents, then consolidates their outputs into a validated `InvestmentSummary`:
 
-- final conclusion: `favorable`, `neutral`, `unfavorable`, or `insufficient_data`
+- final conclusion: `bullish`, `neutral`, `bearish`, or `insufficient_data`
 - confidence
 - market data snapshot
 - analyst report list
@@ -75,15 +75,14 @@ The gateway exposes a Single Stock Research view at:
 /stock/:symbol
 ```
 
-This page keeps the shared header and renders five tabs:
+This page keeps the shared header and renders four tabs:
 
 - Fundamentals
-- Technical
-- Sentiment
-- Market Data
+- Technical, including price and volume data
+- Sentiment, including the top recent headlines
 - Conclusion
 
-Agent output is loaded lazily only after the user opens a stock page. Index pages and index prefetch do not run the research agents. The stock page starts fundamentals and technicals first, then sentiment and market data, then the supervisor conclusion.
+Agent output is loaded lazily only after the user opens a stock page. Index pages and index prefetch do not run the research agents. The stock page starts fundamentals and technicals first, then sentiment, then the supervisor conclusion.
 
 ## Configuration
 

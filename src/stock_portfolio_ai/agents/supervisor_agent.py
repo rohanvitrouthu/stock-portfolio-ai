@@ -123,9 +123,9 @@ def _choose_conclusion(reports: list[AnalystReport]) -> InvestmentConclusion:
     if weight_sum == 0:
         return "insufficient_data"
     if score >= 0.35:
-        return "favorable"
+        return "bullish"
     if score <= -0.35:
-        return "unfavorable"
+        return "bearish"
     return "neutral"
 
 
@@ -210,9 +210,9 @@ def _build_next_steps(
     reports: list[AnalystReport],
 ) -> list[str]:
     next_steps: list[str] = []
-    if conclusion == "favorable":
+    if conclusion == "bullish":
         next_steps.append("Review portfolio fit, valuation sensitivity, and position sizing before acting.")
-    elif conclusion == "unfavorable":
+    elif conclusion == "bearish":
         next_steps.append("Avoid or reduce exposure unless new evidence changes the bearish setup.")
     elif conclusion == "neutral":
         next_steps.append("Keep on watchlist and wait for stronger alignment across analyst signals.")

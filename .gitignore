@@ -89,6 +89,10 @@ test_writable
 # Local-only research notebooks, not for GitHub
 SectoralAnalysisNotebooks/
 
+# Local portfolio ingestion database
+data/*.sqlite
+data/*.sqlite-*
+
 # Accidental nested workspace copy
 stock-portfolio-ai/
 

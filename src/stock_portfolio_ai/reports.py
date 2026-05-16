@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 AgentType = Literal["fundamental", "technical", "sentiment", "macro", "news"]
 Rating = Literal["bullish", "neutral", "bearish", "insufficient_data"]
-InvestmentConclusion = Literal["favorable", "neutral", "unfavorable", "insufficient_data"]
+InvestmentConclusion = Literal["bullish", "neutral", "bearish", "insufficient_data"]
 
 
 class EvidenceItem(BaseModel):

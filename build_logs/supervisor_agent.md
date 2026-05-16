@@ -44,9 +44,9 @@ Added `InvestmentSummary`:
 
 Conclusion values:
 
-- `favorable`
+- `bullish`
 - `neutral`
-- `unfavorable`
+- `bearish`
 - `insufficient_data`
 
 ## Consolidation Logic

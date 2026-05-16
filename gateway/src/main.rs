@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::{
-    extract::{Form, Path, State},
+    extract::{Form, Multipart, Path, State},
     http::Request,
     response::{Html, IntoResponse},
     routing::{get, post},
@@ -14,7 +14,7 @@ use std::net::SocketAddr;
 use std::path::{Path as StdPath, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{
@@ -33,11 +33,29 @@ struct CachedStockRows {
     fetched_at: Instant,
 }
 
+#[derive(Clone)]
+struct UploadedPortfolioFile {
+    filename: String,
+    bytes: Vec<u8>,
+}
+
 // --- Templates ---
 
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate {}
+
+#[derive(Template)]
+#[template(path = "portfolio.html")]
+struct PortfolioTemplate {
+    group: PortfolioDashboardGroup,
+}
+
+#[derive(Template)]
+#[template(path = "portfolio_tab_content_fragment.html")]
+struct PortfolioTabContentFragment {
+    group: PortfolioDashboardGroup,
+}
 
 #[derive(Template)]
 #[template(path = "index_results_fragment.html")]
@@ -110,6 +128,8 @@ struct ResearchReportFragment {
     key_points: Vec<String>,
     risks: Vec<String>,
     evidence: Vec<EvidenceView>,
+    metrics: Vec<MetricView>,
+    headlines: Vec<HeadlineView>,
 }
 
 #[derive(Template)]
@@ -190,11 +210,186 @@ struct HeadlineView {
     published_at: String,
 }
 
+#[derive(Clone, Deserialize)]
+struct PortfolioDashboardGroup {
+    mutual_funds: PortfolioDashboard,
+    stocks: PortfolioDashboard,
+    other_assets: PortfolioDashboard,
+    stored_file_count: usize,
+    uploaded_file_count: usize,
+}
+
+#[derive(Clone, Deserialize)]
+struct PortfolioDashboard {
+    has_data: bool,
+    dashboard_type: String,
+    title: String,
+    primary_label: String,
+    secondary_label: String,
+    net_label: String,
+    count_label: String,
+    asset_title: String,
+    amc_title: String,
+    product_title: String,
+    yearly_title: String,
+    detail_title: String,
+    detail_subtitle: String,
+    next_data_note: String,
+    net_invested: String,
+    purchases: String,
+    redemptions: String,
+    transaction_count: usize,
+    fund_count: usize,
+    amc_count: usize,
+    asset_rows: Vec<PortfolioBreakdownRow>,
+    amc_rows: Vec<PortfolioBreakdownRow>,
+    product_rows: Vec<PortfolioBreakdownRow>,
+    fund_rows: Vec<PortfolioBreakdownRow>,
+    yearly_rows: Vec<PortfolioBreakdownRow>,
+}
+
+#[derive(Clone, Deserialize)]
+struct PortfolioBreakdownRow {
+    label: String,
+    amount: String,
+    percent: String,
+    transactions: usize,
+}
+
+fn empty_portfolio_group() -> PortfolioDashboardGroup {
+    PortfolioDashboardGroup {
+        mutual_funds: empty_portfolio_dashboard(
+            "Mutual Funds",
+            "Mutual Fund Transaction Dashboard",
+            "Upload mutual fund order-history files to populate this tab.",
+        ),
+        stocks: empty_portfolio_dashboard(
+            "Stocks",
+            "Direct Stock Holdings Dashboard",
+            "Upload stock holdings statements to populate this tab.",
+        ),
+        other_assets: empty_portfolio_dashboard(
+            "Other Assets",
+            "Other Asset Dashboard",
+            "Debt, bonds, gold, silver, and other asset statements will populate here once source-specific parsers are added.",
+        ),
+        stored_file_count: 0,
+        uploaded_file_count: 0,
+    }
+}
+
+fn empty_portfolio_dashboard(
+    dashboard_type: &str,
+    title: &str,
+    next_data_note: &str,
+) -> PortfolioDashboard {
+    PortfolioDashboard {
+        has_data: false,
+        dashboard_type: dashboard_type.to_string(),
+        title: title.to_string(),
+        primary_label: "Primary".to_string(),
+        secondary_label: "Secondary".to_string(),
+        net_label: "Total".to_string(),
+        count_label: "Items".to_string(),
+        asset_title: "Asset Split".to_string(),
+        amc_title: "Allocation".to_string(),
+        product_title: "Product Split".to_string(),
+        yearly_title: "Timeline".to_string(),
+        detail_title: "Detail View".to_string(),
+        detail_subtitle: "No data uploaded for this tab".to_string(),
+        next_data_note: next_data_note.to_string(),
+        net_invested: "₹0".to_string(),
+        purchases: "₹0".to_string(),
+        redemptions: "₹0".to_string(),
+        transaction_count: 0,
+        fund_count: 0,
+        amc_count: 0,
+        asset_rows: Vec::new(),
+        amc_rows: Vec::new(),
+        product_rows: Vec::new(),
+        fund_rows: Vec::new(),
+        yearly_rows: Vec::new(),
+    }
+}
+
 // --- Handlers ---
 
 async fn home_handler() -> impl IntoResponse {
     let template = IndexTemplate {};
     Html(template.render().unwrap())
+}
+
+async fn portfolio_handler() -> impl IntoResponse {
+    Html(
+        PortfolioTemplate {
+            group: empty_portfolio_group(),
+        }
+        .render()
+        .unwrap(),
+    )
+}
+
+async fn portfolio_upload_handler(mut multipart: Multipart) -> impl IntoResponse {
+    let mut uploaded_files = Vec::new();
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if field.name() == Some("portfolio_file") {
+            if uploaded_files.len() >= 3 {
+                return Html(
+                    ResearchErrorFragment {
+                        message: "Upload up to 3 files at a time.".to_string(),
+                    }
+                    .render()
+                    .unwrap(),
+                )
+                .into_response();
+            }
+
+            let filename = field
+                .file_name()
+                .map(String::from)
+                .unwrap_or_else(|| "portfolio.xlsx".to_string());
+            match field.bytes().await {
+                Ok(bytes) => uploaded_files.push(UploadedPortfolioFile {
+                    filename,
+                    bytes: bytes.to_vec(),
+                }),
+                Err(error) => {
+                    return Html(
+                        ResearchErrorFragment {
+                            message: format!("Could not read uploaded workbook: {error}"),
+                        }
+                        .render()
+                        .unwrap(),
+                    )
+                    .into_response();
+                }
+            }
+        }
+    }
+
+    if uploaded_files.is_empty() {
+        return Html(
+            ResearchErrorFragment {
+                message: "Choose at least one Excel file to upload.".to_string(),
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response();
+    }
+
+    match analyze_portfolio_workbooks(&uploaded_files).await {
+        Ok(group) => Html(PortfolioTabContentFragment { group }.render().unwrap()).into_response(),
+        Err(error) => Html(
+            ResearchErrorFragment {
+                message: format!("Portfolio upload failed: {error}"),
+            }
+            .render()
+            .unwrap(),
+        )
+        .into_response(),
+    }
 }
 
 async fn settings_handler(req: Request<axum::body::Body>) -> impl IntoResponse {
@@ -430,6 +625,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(home_handler))
+        .route("/portfolio", get(portfolio_handler))
+        .route("/portfolio/upload", post(portfolio_upload_handler))
         .route("/settings", get(settings_handler))
         .route("/search/indices", post(search_indices_handler))
         .route("/index/:symbol/quotes", get(index_quotes_handler))
@@ -624,6 +821,577 @@ async fn run_stock_research_bridge(
     }
 }
 
+async fn analyze_portfolio_workbooks(
+    files: &[UploadedPortfolioFile],
+) -> anyhow::Result<PortfolioDashboardGroup> {
+    let mut upload_paths = Vec::new();
+    let mut manifest = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        let extension = file
+            .filename
+            .rsplit_once('.')
+            .map(|(_, extension)| extension)
+            .unwrap_or("xlsx");
+        let upload_path = temp_upload_path(&format!("portfolio-upload-{index}"), extension)?;
+        std::fs::write(&upload_path, &file.bytes)?;
+        manifest.push(serde_json::json!({
+            "filename": file.filename,
+            "path": path_to_string(&upload_path)?,
+        }));
+        upload_paths.push(upload_path);
+    }
+
+    let manifest_json = serde_json::to_string(&manifest)?;
+    let uploaded_file_count = files.len();
+    let project_root = StdPath::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve project root"))?;
+    let db_path = project_root.join("data").join("portfolio.sqlite");
+    let task = tokio::task::spawn_blocking(move || {
+        analyze_portfolio_workbooks_blocking(&manifest_json, &db_path, uploaded_file_count)
+    });
+
+    let result = match tokio::time::timeout(Duration::from_secs(90), task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(anyhow::anyhow!("Portfolio parser task failed: {}", error)),
+        Err(_) => Err(anyhow::anyhow!("Portfolio parser timed out")),
+    };
+
+    for path in upload_paths {
+        let _ = std::fs::remove_file(path);
+    }
+
+    result
+}
+
+fn analyze_portfolio_workbooks_blocking(
+    manifest_json: &str,
+    db_path: &PathBuf,
+    uploaded_file_count: usize,
+) -> anyhow::Result<PortfolioDashboardGroup> {
+    let script = r#"
+import json
+import hashlib
+import pathlib
+import re
+import sqlite3
+import sys
+
+import pandas as pd
+
+uploaded_file_count = int(sys.argv[1])
+db_path = pathlib.Path(sys.argv[2])
+manifest = json.loads(sys.argv[3])
+db_path.parent.mkdir(parents=True, exist_ok=True)
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+
+conn.executescript("""
+CREATE TABLE IF NOT EXISTS uploaded_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_hash TEXT NOT NULL UNIQUE,
+    filename TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS investments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL REFERENCES uploaded_files(id),
+    asset_class TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    broker TEXT,
+    instrument_name TEXT NOT NULL,
+    isin TEXT,
+    transaction_type TEXT,
+    quantity REAL,
+    nav REAL,
+    invested_value REAL,
+    current_value REAL,
+    pnl REAL,
+    transaction_date TEXT,
+    amc TEXT,
+    product TEXT,
+    asset_bucket TEXT,
+    sector TEXT,
+    market_cap_bucket TEXT,
+    raw_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_investments_asset_class ON investments(asset_class);
+CREATE INDEX IF NOT EXISTS idx_investments_isin ON investments(isin);
+CREATE INDEX IF NOT EXISTS idx_investments_instrument ON investments(instrument_name);
+""")
+
+def money_to_float(value):
+    if pd.isna(value):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    cleaned = re.sub(r"[^0-9.-]", "", str(value))
+    return float(cleaned) if cleaned else 0.0
+
+def parse_date(value):
+    parsed = pd.to_datetime(value, dayfirst=True, errors="coerce")
+    return parsed
+
+def inr(value):
+    return "₹{:,.0f}".format(float(value))
+
+def find_header(raw, required):
+    for idx, row in raw.iterrows():
+        values = [str(value).strip() for value in row.tolist()]
+        if all(item in values for item in required):
+            return idx
+    return None
+
+def rows_from_grouped(grouped, label_column, amount_column="amount", count_column="transactions"):
+    denominator = abs(float(grouped[amount_column].sum())) or 1.0
+    rows = []
+    for _, row in grouped.iterrows():
+        amount = float(row[amount_column])
+        rows.append({
+            "label": str(row[label_column]),
+            "amount": inr(amount),
+            "percent": "{:.1f}%".format((abs(amount) / denominator) * 100),
+            "transactions": int(row[count_column]),
+        })
+    return rows
+
+def amc_from_scheme(name):
+    name = str(name).strip()
+    known = [
+        "ICICI Prudential",
+        "HDFC",
+        "SBI",
+        "Axis",
+        "Bandhan",
+        "Nippon India",
+        "Kotak",
+        "Aditya Birla Sun Life",
+        "Mirae Asset",
+        "UTI",
+        "Motilal Oswal",
+        "Parag Parikh",
+        "DSP",
+    ]
+    lowered = name.lower()
+    for amc in known:
+        if lowered.startswith(amc.lower()):
+            return amc
+    return name.split()[0] if name else "Unknown"
+
+def product_from_scheme(name):
+    lowered = str(name).lower()
+    if "nifty 50" in lowered:
+        return "Nifty 50 Index"
+    if "sensex" in lowered:
+        return "Sensex Index"
+    if "index" in lowered:
+        return "Index Fund"
+    if "large & mid cap" in lowered or "large and mid cap" in lowered:
+        return "Large & Mid Cap"
+    if "gold" in lowered:
+        return "Gold"
+    if "etf" in lowered:
+        return "ETF/FoF"
+    return "Other Mutual Fund"
+
+def asset_from_scheme(name):
+    lowered = str(name).lower()
+    if "gold" in lowered:
+        return "Gold"
+    if "nifty" in lowered or "sensex" in lowered or "index" in lowered:
+        return "Equity Index"
+    if "large" in lowered or "mid cap" in lowered or "equity" in lowered:
+        return "Equity Active"
+    if "debt" in lowered or "liquid" in lowered or "bond" in lowered:
+        return "Debt"
+    return "Other"
+
+def mutual_breakdown(df, column, limit=None):
+    grouped = (
+        df.groupby(column, dropna=False)
+        .agg(amount=("SignedAmount", "sum"), transactions=("Scheme Name", "count"))
+        .reset_index()
+    )
+    grouped["sort_amount"] = grouped["amount"].abs()
+    grouped = grouped.sort_values("sort_amount", ascending=False)
+    if limit:
+        grouped = grouped.head(limit)
+    return rows_from_grouped(grouped, column)
+
+def sector_from_stock(name):
+    lowered = str(name).lower()
+    if "bank" in lowered or "kotak" in lowered or "hdfc bank" in lowered or "idfc" in lowered:
+        return "Financials"
+    if "finance" in lowered or "cards" in lowered or "life" in lowered:
+        return "Financial Services"
+    if "paint" in lowered:
+        return "Paints"
+    if "dabur" in lowered or "hindustan unilever" in lowered or "itc" in lowered or "avenue" in lowered:
+        return "Consumer"
+    if "tata motors" in lowered:
+        return "Automobile"
+    if "pharma" in lowered:
+        return "Pharmaceuticals"
+    if "blue star" in lowered or "voltas" in lowered or "v-guard" in lowered or "symphony" in lowered:
+        return "Consumer Durables"
+    if "polymer" in lowered or "ferrous" in lowered or "agro" in lowered:
+        return "Materials"
+    if "gabriel" in lowered:
+        return "Industrials"
+    return "Unclassified"
+
+def market_cap_bucket(name):
+    lowered = str(name).lower()
+    large = ["asian paints", "avenue", "bajaj finance", "dabur", "hdfc bank", "hdfc life", "hindustan unilever", "itc", "kotak", "sbi cards", "tata motors", "voltas"]
+    if any(item in lowered for item in large):
+        return "Large Cap"
+    mid = ["blue star", "idfc", "v-guard", "symphony", "gabriel"]
+    if any(item in lowered for item in mid):
+        return "Mid Cap"
+    return "Small/Other Cap"
+
+def stock_breakdown(df, column, limit=None):
+    grouped = (
+        df.groupby(column, dropna=False)
+        .agg(amount=("ClosingValue", "sum"), transactions=("Stock Name", "count"))
+        .reset_index()
+        .sort_values("amount", ascending=False)
+    )
+    if limit:
+        grouped = grouped.head(limit)
+    return rows_from_grouped(grouped, column)
+
+def empty_dashboard(kind, title, note):
+    return {
+        "has_data": False,
+        "dashboard_type": kind,
+        "title": title,
+        "primary_label": "Primary",
+        "secondary_label": "Secondary",
+        "net_label": "Total",
+        "count_label": "Items",
+        "asset_title": "Asset Split",
+        "amc_title": "Allocation",
+        "product_title": "Product Split",
+        "yearly_title": "Timeline",
+        "detail_title": "Detail View",
+        "detail_subtitle": "No data uploaded for this tab",
+        "next_data_note": note,
+        "net_invested": "₹0",
+        "purchases": "₹0",
+        "redemptions": "₹0",
+        "transaction_count": 0,
+        "fund_count": 0,
+        "amc_count": 0,
+        "asset_rows": [],
+        "amc_rows": [],
+        "product_rows": [],
+        "fund_rows": [],
+        "yearly_rows": [],
+    }
+
+def file_hash(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def parse_file(path):
+    raw = pd.read_excel(path, sheet_name=0, header=None)
+    mutual_header = find_header(raw, ["Scheme Name", "Transaction Type"])
+    stock_header = find_header(raw, ["Stock Name", "ISIN", "Quantity"])
+    if mutual_header is not None:
+        headers = [str(value).strip() for value in raw.iloc[mutual_header].tolist()]
+        df = raw.iloc[mutual_header + 1:].copy()
+        df.columns = headers
+        df = df.dropna(how="all")
+        df = df[df["Scheme Name"].notna()]
+        df = df[df["Transaction Type"].notna()]
+        df["SourceFile"] = path
+        return "mutual_fund", df
+    if stock_header is not None:
+        headers = [str(value).strip() for value in raw.iloc[stock_header].tolist()]
+        df = raw.iloc[stock_header + 1:].copy()
+        df.columns = headers
+        df = df.dropna(how="all")
+        df = df[df["ISIN"].notna()]
+        df["SourceFile"] = path
+        return "stock", df
+    return "other_assets", pd.DataFrame([{"SourceFile": path, "Amount": 0.0}])
+
+def insert_file(item):
+    path = item["path"]
+    filename = item["filename"]
+    digest = file_hash(path)
+    existing = conn.execute("SELECT id FROM uploaded_files WHERE file_hash = ?", (digest,)).fetchone()
+    if existing:
+        return
+
+    kind, df = parse_file(path)
+    cursor = conn.execute(
+        "INSERT INTO uploaded_files (file_hash, filename, asset_class) VALUES (?, ?, ?)",
+        (digest, filename, kind),
+    )
+    upload_id = cursor.lastrowid
+
+    if kind == "mutual_fund":
+        df["AmountValue"] = df["Amount"].map(money_to_float)
+        df["SignedAmount"] = df.apply(
+            lambda row: -row["AmountValue"] if str(row["Transaction Type"]).strip().upper() == "REDEEM" else row["AmountValue"],
+            axis=1,
+        )
+        df["AMC"] = df["Scheme Name"].map(amc_from_scheme)
+        df["Product"] = df["Scheme Name"].map(product_from_scheme)
+        df["Asset"] = df["Scheme Name"].map(asset_from_scheme)
+        df["ParsedDate"] = df["Date"].map(parse_date)
+        for _, row in df.iterrows():
+            parsed_date = row["ParsedDate"]
+            transaction_date = None if pd.isna(parsed_date) else parsed_date.date().isoformat()
+            conn.execute(
+                """
+                INSERT INTO investments (
+                    upload_id, asset_class, source_file, broker, instrument_name, transaction_type,
+                    quantity, nav, invested_value, transaction_date, amc, product, asset_bucket, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    upload_id,
+                    "mutual_fund",
+                    filename,
+                    "Groww",
+                    str(row["Scheme Name"]),
+                    str(row["Transaction Type"]).strip().upper(),
+                    money_to_float(row.get("Units")),
+                    money_to_float(row.get("NAV")),
+                    float(row["SignedAmount"]),
+                    transaction_date,
+                    str(row["AMC"]),
+                    str(row["Product"]),
+                    str(row["Asset"]),
+                    row.to_json(default_handler=str),
+                ),
+            )
+    elif kind == "stock":
+        df["Stock Name"] = df["Stock Name"].fillna("Unknown Stock")
+        df["BuyValue"] = df["Buy value"].map(money_to_float)
+        df["ClosingValue"] = df["Closing value"].map(money_to_float)
+        df["UnrealisedValue"] = df["Unrealised P&L"].map(money_to_float)
+        df = df[df["ClosingValue"].notna()]
+        df["Sector"] = df["Stock Name"].map(sector_from_stock)
+        df["MarketCap"] = df["Stock Name"].map(market_cap_bucket)
+        for _, row in df.iterrows():
+            conn.execute(
+                """
+                INSERT INTO investments (
+                    upload_id, asset_class, source_file, broker, instrument_name, isin,
+                    quantity, invested_value, current_value, pnl, asset_bucket, sector,
+                    market_cap_bucket, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    upload_id,
+                    "stock",
+                    filename,
+                    "Groww",
+                    str(row["Stock Name"]),
+                    str(row["ISIN"]),
+                    money_to_float(row.get("Quantity")),
+                    float(row["BuyValue"]),
+                    float(row["ClosingValue"]),
+                    float(row["UnrealisedValue"]),
+                    "Direct Equity",
+                    str(row["Sector"]),
+                    str(row["MarketCap"]),
+                    row.to_json(default_handler=str),
+                ),
+            )
+    conn.commit()
+
+for item in manifest:
+    insert_file(item)
+
+def build_mutual_dashboard():
+    df = pd.read_sql_query(
+        "SELECT * FROM investments WHERE asset_class = 'mutual_fund'",
+        conn,
+    )
+    if df.empty:
+        return empty_dashboard(
+            "Mutual Funds",
+            "Mutual Fund Transaction Dashboard",
+            "Upload mutual fund order-history files to populate this tab. Market cap split and sector allocation require scheme holdings from factsheets or a holdings provider.",
+        )
+    df["year"] = pd.to_datetime(df["transaction_date"], errors="coerce").dt.year.fillna(0).astype(int).astype(str).replace({"0": "Unknown"})
+    purchase_mask = df["transaction_type"].astype(str).str.upper().eq("PURCHASE")
+    redeem_mask = df["transaction_type"].astype(str).str.upper().eq("REDEEM")
+    purchases = float(df.loc[purchase_mask, "invested_value"].abs().sum())
+    redemptions = float(df.loc[redeem_mask, "invested_value"].abs().sum())
+    net = purchases - redemptions
+    return {
+        "has_data": True,
+        "dashboard_type": "Mutual Funds",
+        "title": "Mutual Fund Transaction Dashboard",
+        "primary_label": "Total purchases",
+        "secondary_label": "Redemptions",
+        "net_label": "Net invested",
+        "count_label": "Funds / AMCs",
+        "asset_title": "Asset Split",
+        "amc_title": "AMC Split",
+        "product_title": "Product Split",
+        "yearly_title": "Yearly Flow",
+        "detail_title": "Fund-Level View",
+        "detail_subtitle": "Top funds by net transaction amount",
+        "next_data_note": "Market cap split and sector allocation need fund holdings or a scheme-to-holdings reference table. This order-history file can identify AMC, product, asset category, fund, dates, and transaction flows, but it does not contain the underlying stocks or sector weights.",
+        "net_invested": inr(net),
+        "purchases": inr(purchases),
+        "redemptions": inr(redemptions),
+        "transaction_count": int(len(df)),
+        "fund_count": int(df["instrument_name"].nunique()),
+        "amc_count": int(df["amc"].nunique()),
+        "asset_rows": mutual_breakdown(df.rename(columns={"asset_bucket": "Asset", "instrument_name": "Scheme Name", "invested_value": "SignedAmount"}), "Asset"),
+        "amc_rows": mutual_breakdown(df.rename(columns={"amc": "AMC", "instrument_name": "Scheme Name", "invested_value": "SignedAmount"}), "AMC"),
+        "product_rows": mutual_breakdown(df.rename(columns={"product": "Product", "instrument_name": "Scheme Name", "invested_value": "SignedAmount"}), "Product"),
+        "fund_rows": mutual_breakdown(df.rename(columns={"instrument_name": "Scheme Name", "invested_value": "SignedAmount"}), "Scheme Name", limit=10),
+        "yearly_rows": mutual_breakdown(df.rename(columns={"year": "Year", "instrument_name": "Scheme Name", "invested_value": "SignedAmount"}), "Year"),
+    }
+
+def build_stock_dashboard():
+    df = pd.read_sql_query(
+        "SELECT * FROM investments WHERE asset_class = 'stock'",
+        conn,
+    )
+    if df.empty:
+        return empty_dashboard(
+            "Stocks",
+            "Direct Stock Holdings Dashboard",
+            "Upload stock holdings statements to populate this tab. Production enrichment should resolve sector and market-cap buckets from ISIN/security master data.",
+        )
+    df["Stock Name"] = df["instrument_name"].fillna("Unknown Stock")
+    df["BuyValue"] = df["invested_value"].fillna(0.0)
+    df["ClosingValue"] = df["current_value"].fillna(0.0)
+    df["UnrealisedValue"] = df["pnl"].fillna(0.0)
+    df["Asset"] = df["asset_bucket"].fillna("Direct Equity")
+    df["Sector"] = df["sector"].fillna("Unclassified")
+    df["MarketCap"] = df["market_cap_bucket"].fillna("Unclassified")
+    invested = float(df["BuyValue"].sum())
+    closing = float(df["ClosingValue"].sum())
+    pnl = float(df["UnrealisedValue"].sum())
+    return {
+        "has_data": True,
+        "dashboard_type": "Stocks",
+        "title": "Direct Stock Holdings Dashboard",
+        "primary_label": "Invested value",
+        "secondary_label": "Unrealised P&L",
+        "net_label": "Closing value",
+        "count_label": "Stocks / ISINs",
+        "asset_title": "Asset Split",
+        "amc_title": "Sector Allocation",
+        "product_title": "Market Cap Split",
+        "yearly_title": "P&L Buckets",
+        "detail_title": "Stock-Level View",
+        "detail_subtitle": "Top holdings by closing value",
+        "next_data_note": "This stock holdings file has direct holdings and values. Sector and market-cap buckets are classified locally from stock names for now; production should enrich each ISIN from exchange/security masters or a market data provider.",
+        "net_invested": inr(closing),
+        "purchases": inr(invested),
+        "redemptions": inr(pnl),
+        "transaction_count": int(len(df)),
+        "fund_count": int(df["Stock Name"].nunique()),
+        "amc_count": int(df["isin"].nunique()),
+        "asset_rows": stock_breakdown(df, "Asset"),
+        "amc_rows": stock_breakdown(df, "Sector"),
+        "product_rows": stock_breakdown(df, "MarketCap"),
+        "fund_rows": stock_breakdown(df, "Stock Name", limit=12),
+        "yearly_rows": rows_from_grouped(
+            pd.DataFrame([
+                {"Bucket": "Gains", "amount": float(df.loc[df["UnrealisedValue"] > 0, "UnrealisedValue"].sum()), "transactions": int((df["UnrealisedValue"] > 0).sum())},
+                {"Bucket": "Losses", "amount": float(df.loc[df["UnrealisedValue"] < 0, "UnrealisedValue"].sum()), "transactions": int((df["UnrealisedValue"] < 0).sum())},
+                {"Bucket": "Flat", "amount": float(df.loc[df["UnrealisedValue"] == 0, "ClosingValue"].sum()), "transactions": int((df["UnrealisedValue"] == 0).sum())},
+            ]),
+            "Bucket",
+        ),
+    }
+
+def build_other_dashboard():
+    other_files = pd.read_sql_query(
+        "SELECT * FROM uploaded_files WHERE asset_class = 'other_assets'",
+        conn,
+    )
+    if other_files.empty:
+        return empty_dashboard(
+            "Other Assets",
+            "Other Asset Dashboard",
+            "Debt, bonds, gold, silver, and other asset statements will populate here once source-specific parsers are added.",
+        )
+    grouped = pd.DataFrame([{
+        "Asset": "Unclassified files",
+        "amount": 0.0,
+        "transactions": len(other_files),
+    }])
+    dashboard = empty_dashboard(
+        "Other Assets",
+        "Other Asset Dashboard",
+        "These uploaded files could not be classified yet. Add parser support or route them through an LLM schema-mapping fallback.",
+    )
+    dashboard["has_data"] = True
+    dashboard["transaction_count"] = len(other_files)
+    dashboard["asset_rows"] = rows_from_grouped(grouped, "Asset")
+    dashboard["detail_subtitle"] = "Unclassified uploaded files"
+    return dashboard
+
+stored_file_count = int(conn.execute("SELECT COUNT(*) FROM uploaded_files").fetchone()[0])
+group = {
+    "mutual_funds": build_mutual_dashboard(),
+    "stocks": build_stock_dashboard(),
+    "other_assets": build_other_dashboard(),
+    "stored_file_count": stored_file_count,
+    "uploaded_file_count": uploaded_file_count,
+}
+
+print(json.dumps(group))
+"#;
+
+    let project_root = StdPath::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve project root"))?;
+    let uv_cache_dir = project_root.join(".uv-cache");
+    let uploaded_file_count_arg = uploaded_file_count.to_string();
+    let db_path_arg = path_to_string(db_path)?;
+
+    let output = Command::new("uv")
+        .current_dir(project_root)
+        .env("UV_CACHE_DIR", path_to_string(&uv_cache_dir)?)
+        .args([
+            "run",
+            "--with",
+            "openpyxl",
+            "python",
+            "-c",
+            script,
+            &uploaded_file_count_arg,
+            &db_path_arg,
+            manifest_json,
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Python portfolio parser failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+fn temp_upload_path(prefix: &str, extension: &str) -> anyhow::Result<PathBuf> {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    Ok(std::env::temp_dir().join(format!("{prefix}-{nanos}.{extension}")))
+}
+
 fn run_stock_research_bridge_blocking(
     symbol: &str,
     section: &str,
@@ -643,12 +1411,16 @@ if section == "fundamentals":
     print(json.dumps({"kind": "report", "title": "Fundamentals", "report": report}))
 elif section == "technical":
     from stock_portfolio_ai.agents.technical_analyst_agent import TechnicalAnalystAgent
+    from stock_portfolio_ai.agents.market_data_agent import MarketDataAgent
     report = TechnicalAnalystAgent(model=model).analyze_symbol_report(symbol).model_dump()
-    print(json.dumps({"kind": "report", "title": "Technical Indicators", "report": report}))
+    price = MarketDataAgent(model=model).invoke_tool("get_stock_price", symbol=symbol)
+    print(json.dumps({"kind": "report", "title": "Technical Indicators", "report": report, "price": price}))
 elif section == "sentiment":
     from stock_portfolio_ai.agents.sentiment_analyst_agent import SentimentAnalystAgent
+    from stock_portfolio_ai.agents.market_data_agent import MarketDataAgent
     report = SentimentAnalystAgent(model=model).analyze_symbol_report(symbol).model_dump()
-    print(json.dumps({"kind": "report", "title": "Sentiment Analysis", "report": report}))
+    news = MarketDataAgent(model=model).invoke_tool("get_company_news", symbol=symbol)
+    print(json.dumps({"kind": "report", "title": "Sentiment Analysis", "report": report, "news": news}))
 elif section == "market":
     from stock_portfolio_ai.agents.market_data_agent import MarketDataAgent
     agent = MarketDataAgent(model=model)
@@ -724,6 +1496,9 @@ fn render_report_payload(payload: Value) -> Html<String> {
         })
         .unwrap_or_default();
 
+    let metrics = market_metrics(payload.get("price").unwrap_or(&Value::Null));
+    let headlines = market_headlines(payload.get("news").unwrap_or(&Value::Null), 5);
+
     let template = ResearchReportFragment {
         title,
         rating: string_value(report, "rating").replace('_', " "),
@@ -732,6 +1507,8 @@ fn render_report_payload(payload: Value) -> Html<String> {
         key_points: string_list(report.get("key_points")),
         risks: string_list(report.get("risks")),
         evidence,
+        metrics,
+        headlines,
     };
 
     Html(template.render().unwrap())
@@ -741,7 +1518,23 @@ fn render_market_payload(payload: Value) -> Html<String> {
     let price = payload.get("price").unwrap_or(&Value::Null);
     let news = payload.get("news").unwrap_or(&Value::Null);
 
+    Html(
+        ResearchMarketFragment {
+            symbol: string_value(&payload, "symbol"),
+            metrics: market_metrics(price),
+            headlines: market_headlines(news, usize::MAX),
+        }
+        .render()
+        .unwrap(),
+    )
+}
+
+fn market_metrics(price: &Value) -> Vec<MetricView> {
     let mut metrics = Vec::new();
+    if price.is_null() {
+        return metrics;
+    }
+
     if price.get("error").is_some() {
         metrics.push(MetricView {
             label: "Price status".to_string(),
@@ -770,12 +1563,16 @@ fn render_market_payload(payload: Value) -> Html<String> {
         });
     }
 
-    let headlines = news
-        .get("headlines")
+    metrics
+}
+
+fn market_headlines(news: &Value, limit: usize) -> Vec<HeadlineView> {
+    news.get("headlines")
         .and_then(Value::as_array)
         .map(|items| {
             items
                 .iter()
+                .take(limit)
                 .map(|item| HeadlineView {
                     title: string_value(item, "title"),
                     publisher: string_value(item, "publisher"),
@@ -783,24 +1580,14 @@ fn render_market_payload(payload: Value) -> Html<String> {
                 })
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_default();
-
-    Html(
-        ResearchMarketFragment {
-            symbol: string_value(&payload, "symbol"),
-            metrics,
-            headlines,
-        }
-        .render()
-        .unwrap(),
-    )
+        .unwrap_or_default()
 }
 
 fn render_conclusion_payload(payload: Value) -> Html<String> {
     let summary = payload.get("summary").unwrap_or(&Value::Null);
     Html(
         ResearchConclusionFragment {
-            conclusion: string_value(summary, "conclusion").replace('_', " "),
+            conclusion: conclusion_to_rating(&string_value(summary, "conclusion")),
             confidence: percent_value(summary.get("confidence")),
             summary: string_value(summary, "summary"),
             key_findings: string_list(summary.get("key_findings")),
@@ -884,6 +1671,16 @@ fn percent_value(value: Option<&Value>) -> String {
     match value.and_then(Value::as_f64) {
         Some(value) => format!("{:.0}%", value * 100.0),
         None => "0%".to_string(),
+    }
+}
+
+fn conclusion_to_rating(conclusion: &str) -> String {
+    match conclusion {
+        "bullish" | "bearish" | "neutral" => conclusion.to_string(),
+        "favorable" => "bullish".to_string(),
+        "unfavorable" => "bearish".to_string(),
+        "insufficient_data" => "insufficient data".to_string(),
+        other => other.replace('_', " "),
     }
 }
 

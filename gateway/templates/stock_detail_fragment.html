@@ -21,8 +21,6 @@
                 <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
                         data-tab="sentiment">Sentiment</button>
                 <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
-                        data-tab="market">Market Data</button>
-                <button class="research-tab px-4 py-3 text-sm font-medium text-slate-400 border-b-2 border-transparent"
                         data-tab="conclusion">Conclusion</button>
             </nav>
         </div>
@@ -52,18 +50,10 @@
                 {% include "research_loading_fragment.html" %}
             </section>
 
-            <section id="tab-market"
-                     class="research-panel hidden"
-                     hx-get="/stock/{{ symbol }}/research/market"
-                     hx-trigger="load delay:900ms"
-                     hx-swap="innerHTML">
-                {% include "research_loading_fragment.html" %}
-            </section>
-
             <section id="tab-conclusion"
                      class="research-panel hidden"
                      hx-get="/stock/{{ symbol }}/research/conclusion"
-                     hx-trigger="load delay:1600ms"
+                     hx-trigger="load delay:1400ms"
                      hx-swap="innerHTML">
                 {% include "research_loading_fragment.html" %}
             </section>

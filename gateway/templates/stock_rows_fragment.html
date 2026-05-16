@@ -1,3 +1,9 @@
 {% for stock in stocks %}
     {% include "stock_row.html" %}
+{% else %}
+    <tr>
+        <td colspan="5" class="p-6 text-center text-sm text-slate-500">
+            No stocks available.
+        </td>
+    </tr>
 {% endfor %}

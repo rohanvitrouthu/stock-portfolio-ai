@@ -1,0 +1,49 @@
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-sm text-slate-500">
+    <span>{{ group.stored_file_count }} unique files in portfolio database</span>
+    <span>{{ group.uploaded_file_count }} files submitted in the last upload</span>
+</div>
+
+<section id="tab-mutual-funds" class="portfolio-panel space-y-6">
+    <div class="space-y-2">
+        <h3 class="text-lg font-bold text-white">Mutual Funds</h3>
+        <p class="text-sm text-slate-400">Detected from columns such as Scheme Name, Transaction Type, Units, NAV, Amount, and Date.</p>
+    </div>
+    {% if group.mutual_funds.has_data %}
+        {% let dashboard = group.mutual_funds.clone() %}
+        {% include "portfolio_dashboard_fragment.html" %}
+    {% else %}
+        <div class="border border-dashed border-slate-700 rounded-lg p-8 text-center text-slate-500">
+            Upload a mutual fund statement to populate this tab.
+        </div>
+    {% endif %}
+</section>
+
+<section id="tab-stocks" class="portfolio-panel hidden space-y-6">
+    <div class="space-y-2">
+        <h3 class="text-lg font-bold text-white">Stocks</h3>
+        <p class="text-sm text-slate-400">Detected from columns such as Stock Name, ISIN, Quantity, Buy value, Closing value, and Unrealised P&amp;L.</p>
+    </div>
+    {% if group.stocks.has_data %}
+        {% let dashboard = group.stocks.clone() %}
+        {% include "portfolio_dashboard_fragment.html" %}
+    {% else %}
+        <div class="border border-dashed border-slate-700 rounded-lg p-8 text-center text-slate-500">
+            Upload a stock holdings statement to populate this tab.
+        </div>
+    {% endif %}
+</section>
+
+<section id="tab-other-assets" class="portfolio-panel hidden space-y-6">
+    <div class="space-y-2">
+        <h3 class="text-lg font-bold text-white">Other Assets</h3>
+        <p class="text-sm text-slate-400">Debt, bonds, gold, silver, and mixed statements will need source-specific parsers as sample files are added.</p>
+    </div>
+    {% if group.other_assets.has_data %}
+        {% let dashboard = group.other_assets.clone() %}
+        {% include "portfolio_dashboard_fragment.html" %}
+    {% else %}
+        <div class="border border-dashed border-slate-700 rounded-lg p-8 text-center text-slate-500">
+            Upload other asset statements after a parser is added for that source.
+        </div>
+    {% endif %}
+</section>

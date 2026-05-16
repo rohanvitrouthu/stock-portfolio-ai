@@ -10,6 +10,34 @@
         </div>
     </div>
 
+    {% if metrics.len() > 0 %}
+        <section class="space-y-3">
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Price & Volume</h4>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {% for metric in metrics %}
+                    <div class="border border-slate-700 rounded-lg p-3 bg-slate-900/60">
+                        <p class="text-xs uppercase tracking-wide text-slate-500">{{ metric.label }}</p>
+                        <p class="text-base font-semibold text-white mt-1">{{ metric.value }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endif %}
+
+    {% if headlines.len() > 0 %}
+        <section class="space-y-3">
+            <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Recent Headlines</h4>
+            <ul class="space-y-2">
+                {% for headline in headlines %}
+                    <li class="border border-slate-700 rounded-lg p-3 bg-slate-900/60">
+                        <p class="text-sm text-slate-300">{{ headline.title }}</p>
+                        <p class="text-xs text-slate-500 mt-1">{{ headline.publisher }} {{ headline.published_at }}</p>
+                    </li>
+                {% endfor %}
+            </ul>
+        </section>
+    {% endif %}
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <section class="space-y-3">
             <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide">Key Points</h4>

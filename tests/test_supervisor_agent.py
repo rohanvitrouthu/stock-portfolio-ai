@@ -70,7 +70,7 @@ def test_supervisor_consolidates_four_agent_outputs() -> None:
     summary = supervisor.analyze_symbol("msft")
 
     assert summary.symbol == "MSFT"
-    assert summary.conclusion == "favorable"
+    assert summary.conclusion == "bullish"
     assert 0 < summary.confidence <= 1
     assert summary.market_data["price"]["price"] == 450.0
     assert len(summary.analyst_reports) == 3
